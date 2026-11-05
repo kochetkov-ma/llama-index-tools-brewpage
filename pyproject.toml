@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling==1.33.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "llama-index-tools-brewpage"
+version = "0.1.0"
+description = "LlamaIndex tool spec for BrewPage: publish HTML, Markdown, JSON, KV stores and files to brewpage.app and get a shareable URL."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Maksim Kochetkov", email = "apmatypa88@gmail.com" }]
+requires-python = ">=3.10,<4.0"
+keywords = ["llama-index", "llamaindex", "brewpage", "hosting", "publish", "agent", "tools"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries",
+    "Intended Audience :: Developers",
+]
+dependencies = [
+    "llama-index-core==0.14.25",
+    "httpx==0.28.1",
+]
+
+[project.urls]
+Homepage = "https://brewpage.app"
+Repository = "https://github.com/kochetkov-ma/llama-index-tools-brewpage"
+Issues = "https://github.com/kochetkov-ma/llama-index-tools-brewpage/issues"
+Documentation = "https://github.com/kochetkov-ma/llama-index-tools-brewpage#readme"
+
+[dependency-groups]
+test = ["pytest==9.2.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["llama_index"]
+
+[tool.hatch.build.targets.sdist]
+include = ["llama_index", "tests", "README.md", "LICENSE"]
+
+[tool.pytest.ini_options]
+markers = ["live: hits production brewpage.app (set BREWPAGE_LIVE=1)"]
