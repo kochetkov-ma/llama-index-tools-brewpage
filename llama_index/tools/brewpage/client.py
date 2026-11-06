@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 import httpx
 
 DEFAULT_BASE_URL = "https://brewpage.app"
-USER_AGENT = "llama-index-tools-brewpage/0.1.0"
+USER_AGENT = "llama-index-tools-brewpage/0.1.1"
 
 
 class BrewPageError(RuntimeError):
