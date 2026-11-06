@@ -2,9 +2,11 @@
 
 LlamaIndex tool spec that publishes HTML, Markdown, JSON, key-value stores and files to [BrewPage](https://brewpage.app) and returns a shareable URL. Free, no account, no API key.
 
-[![PyPI](https://img.shields.io/pypi/v/llama-index-tools-brewpage)](https://pypi.org/project/llama-index-tools-brewpage/)
-[![License](https://img.shields.io/pypi/l/llama-index-tools-brewpage)](LICENSE)
-[![CI](https://github.com/kochetkov-ma/llama-index-tools-brewpage/actions/workflows/ci.yml/badge.svg)](https://github.com/kochetkov-ma/llama-index-tools-brewpage/actions/workflows/ci.yml)
+<p>
+<a href="https://pypi.org/project/llama-index-tools-brewpage/"><img height="18" alt="PyPI" src="https://img.shields.io/pypi/v/llama-index-tools-brewpage"></a>
+<a href="https://github.com/kochetkov-ma/llama-index-tools-brewpage/blob/main/LICENSE"><img height="18" alt="License" src="https://img.shields.io/pypi/l/llama-index-tools-brewpage"></a>
+<a href="https://github.com/kochetkov-ma/llama-index-tools-brewpage/actions/workflows/ci.yml"><img height="18" alt="CI" src="https://github.com/kochetkov-ma/llama-index-tools-brewpage/actions/workflows/ci.yml/badge.svg"></a>
+</p>
 
 ## Install
 
@@ -64,9 +66,14 @@ Environment: `BREWPAGE_OWNER_TOKEN`, `BREWPAGE_NAMESPACE`, `BREWPAGE_BASE_URL` (
 
 - [BrewPage](https://brewpage.app) and its [API](https://brewpage.app/api)
 - [API reference](https://kochetkov-ma.github.io/brewpage-openapi/)
-- [langchain-brewpage](https://github.com/kochetkov-ma/langchain-brewpage): the same tools for LangChain
+- [langchain-brewpage](https://github.com/kochetkov-ma/langchain-brewpage): the same tools for LangChain ([PyPI](https://pypi.org/project/langchain-brewpage/))
 - [brewpage-publish-plugins](https://github.com/kochetkov-ma/brewpage-publish-plugins): other integrations
-- [brewpage-mcp](https://www.npmjs.com/package/brewpage-mcp): MCP server on npm
+- [brewpage-mcp](https://www.npmjs.com/package/brewpage-mcp): MCP server on npm; source and OpenAPI contract in [brewpage-openapi](https://github.com/kochetkov-ma/brewpage-openapi)
+- [brewpage-action](https://github.com/kochetkov-ma/brewpage-action): GitHub Action that publishes CI artifacts ([Marketplace](https://github.com/marketplace/actions/publish-to-brewpage))
+- [brewpage-cookbook](https://github.com/kochetkov-ma/brewpage-cookbook): interactive recipes published on BrewPage
+- [brewpage-obsidian](https://github.com/kochetkov-ma/brewpage-obsidian): Obsidian plugin that publishes notes ([Obsidian community](https://community.obsidian.md/plugins/brewpage-publisher))
+- [brewpage-browser-extension](https://github.com/kochetkov-ma/brewpage-browser-extension): browser extension that publishes pages, selections and files
+- [brewpage-codex-plugin](https://github.com/kochetkov-ma/brewpage-codex-plugin): Codex plugin with the publishing skill and remote MCP
 
 ## Development
 
@@ -82,4 +89,4 @@ info@brewpage.app or [GitHub issues](https://github.com/kochetkov-ma/llama-index
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/kochetkov-ma/llama-index-tools-brewpage/blob/main/LICENSE)
