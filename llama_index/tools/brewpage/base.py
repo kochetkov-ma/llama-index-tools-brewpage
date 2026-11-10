@@ -14,6 +14,8 @@ Password = Annotated[Optional[str], Field(description="Optional password readers
 Namespace = Annotated[Optional[str], Field(
     description="Omit for a private unlisted link; 'public' lists pages in the public gallery and search. "
                 "Never put secrets or personal data in 'public'.")]
+_HANDOFF = (" Give the user 'url' and 'management_link' (private: anyone who has it can edit or delete the "
+            "publication). Keep 'owner_token' for later updates; show it when asked. Never post either publicly.")
 
 
 class BrewPageToolSpec(BaseToolSpec):
@@ -32,7 +34,7 @@ class BrewPageToolSpec(BaseToolSpec):
         password: Password = None,
         namespace: Namespace = None,
     ) -> Dict[str, Any]:
-        """Publish an HTML page or Markdown document on brewpage.app; returns its URL and owner token."""
+        """Publish an HTML page or Markdown document on brewpage.app; returns its URL."""
         return self._call("publish_page", content=content, format=format, ttl_days=ttl_days,
                           password=password, namespace=namespace)
 
@@ -73,8 +75,9 @@ class BrewPageToolSpec(BaseToolSpec):
         return self._call("upload_file", path=path, ttl_days=ttl_days, password=password, namespace=namespace)
 
     def to_tool_list(self, *args: Any, **kwargs: Any) -> List[FunctionTool]:
-        """Build tools with the plain docstring as description (no signature dump)."""
-        return [FunctionTool.from_defaults(fn=getattr(self, name), name=name, description=getattr(self, name).__doc__)
+        """Build tools described by the plain docstring plus the hand-over rule (no signature dump)."""
+        return [FunctionTool.from_defaults(fn=getattr(self, name), name=name,
+                                           description=getattr(self, name).__doc__ + _HANDOFF)
                 for name in self.spec_functions]
 
     def _call(self, method: str, **kwargs: Any) -> Dict[str, Any]:

@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 import httpx
 
 DEFAULT_BASE_URL = "https://brewpage.app"
-USER_AGENT = "llama-index-tools-brewpage/0.1.1"
+USER_AGENT = "llama-index-tools-brewpage/0.1.2"
 
 
 class BrewPageError(RuntimeError):
@@ -83,6 +83,7 @@ class BrewPageClient:
             "id": payload.get("id"),
             "namespace": payload.get("namespace"),
             "owner_token": payload.get("ownerToken") or self.owner_token,
-            "management_link": payload.get("managementLink"),
+            # manageUrl carries the #k= key; the API's managementLink is the same page without it
+            "management_link": payload.get("manageUrl"),
             "expires_at": payload.get("expiresAt"),
         }
