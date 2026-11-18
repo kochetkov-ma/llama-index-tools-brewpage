@@ -11,7 +11,7 @@ LlamaIndex tool spec that publishes HTML, Markdown, JSON, key-value stores and f
 ## Install
 
 ```bash
-pip install llama-index-tools-brewpage
+pip install llama-index-tools-brewpage==0.2.0
 ```
 
 ## Usage
@@ -57,6 +57,46 @@ spec = BrewPageToolSpec(client=BrewPageClient(owner_token="..."))
 ```
 
 Environment: `BREWPAGE_OWNER_TOKEN`, `BREWPAGE_NAMESPACE`, `BREWPAGE_BASE_URL` (default `https://brewpage.app`).
+
+## Page data and your domain
+
+The page tool and `BrewPageClient.publish_page` also accept `state` (a settings object; `{}` enables defaults) and `domain` (an owned hostname). These options apply to HTML pages. Omit `state` or pass `None` to leave Page data settings unchanged. The HTML uses the [visitor SDK](https://brewpage.app/llms-page-data.txt); the declaration stays in the publish request.
+
+This example requests private visitor replies and a custom hostname in one publication. For the hostname, set `BREWPAGE_OWNER_TOKEN` to an owner token already linked to your BrewPage profile before creating the client. For Page data alone, omit `domain`; no account is needed.
+
+```python
+from llama_index.tools.brewpage import BrewPageClient, BrewPageToolSpec
+
+html = """<!doctype html><meta charset="utf-8"><title>Event replies</title>
+<form><label>Your reply <textarea name="reply" required></textarea></label><button>Send</button></form>
+<p>What you enter is saved on BrewPage and can be read by this page's author.</p><p role="status"></p>
+<script src="https://brewpage.app/js/state.js"></script>
+<script>
+document.querySelector("form").addEventListener("submit", async function (event) {
+  event.preventDefault();
+  const note = document.querySelector('[role="status"]');
+  const store = await bp.state();
+  if (!store) { note.textContent = "Saving is not available right now."; return; }
+  try {
+    await store.col("answers").add({text: this.elements.reply.value});
+    note.textContent = "Saved.";
+  } catch (error) { note.textContent = error.message; }
+});
+</script>"""
+
+spec = BrewPageToolSpec(client=BrewPageClient())
+page = spec.publish_page(
+    html,
+    state={"collections": {"answers": {}}},
+    domain="www.example.com",
+)
+print(page["url"])
+print(page.get("custom_domain", {}).get("nextStep", page.get("notices", [])))
+```
+
+When either option is supplied, the receipt includes the service's available `notices`, `custom_domain`, `delivery_mode`, `delivery_mode_reason` and `delivery_notice` fields. The returned `url` is the actual BrewPage address. A domain request can leave the publication live while returning a notice explaining why the hostname was not attached. For a pending domain, create the returned DNS records, follow `nextStep`, check once after the change, then read status until it is `active`. This adapter does not change DNS or poll automatically. Without either option, the existing six-field receipt is unchanged.
+
+The private `management_link` opens the publication's Data tab for the author. Visitor entries stay attached to the publication; do not put an owner token or management link in the HTML. To reopen a publication in a new process, retain its private receipt and supply the same owner token to the new client.
 
 ## Limits
 

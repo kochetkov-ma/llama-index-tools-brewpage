@@ -1,6 +1,8 @@
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, Lock, local
 
 import httpx
 import pytest
@@ -49,6 +51,26 @@ def _recording_client(status, reply, seen):
         return httpx.Response(status, json=reply)
 
     return BrewPageClient(owner_token="tok-1", namespace="my", transport=httpx.MockTransport(handler))
+
+
+class _ConcurrentOwnerClient(BrewPageClient):
+    def __init__(self, **kwargs):
+        self.owner_reads = local()
+        self.initial_owner_reads = Barrier(1)
+        super().__init__(**kwargs)
+
+    @property
+    def owner_token(self):
+        # Snapshot each worker's initial owner read before either call continues.
+        snapshot = self.stored_owner_token
+        wait = getattr(self.owner_reads, "wait", self.initial_owner_reads.wait)
+        self.owner_reads.wait = lambda timeout=None: None
+        wait(timeout=5)
+        return snapshot
+
+    @owner_token.setter
+    def owner_token(self, value):
+        self.stored_owner_token = value
 
 
 @pytest.mark.parametrize(
@@ -124,6 +146,115 @@ def test_api_error_becomes_tool_message():
 
     # THEN the agent receives the error text instead of an exception
     assert result == {"error": 'BrewPage /api/kv failed with HTTP 429: {"message":"slow down"}'}, f"unexpected tool output {result!r}"
+
+
+
+DOMAIN = {
+    "hostname": "www.example.com", "displayHostname": "www.example.com", "apex": False,
+    "createdAt": "2026-11-18T00:00:00Z", "status": "pending_dns", "serving": False, "suspended": False,
+    "records": [
+        {"type": "TXT", "name": "_brewpage.www.example.com", "host": "_brewpage.www",
+         "value": "bp-verify=fixture123", "state": "missing"},
+        {"type": "CNAME", "name": "www.example.com", "host": "www",
+         "value": "domains.brewpage.app", "state": "missing"},
+    ],
+    "nextStep": "Create the DNS records, check once, then read status until active.",
+}
+
+@pytest.mark.parametrize(
+    ("args", "reply_fields", "query", "body", "details"),
+    [
+        ({}, {"notices": [{"code": "owner-token-new", "message": "Save your owner token."}]}, "",
+         '{"content": "<h1>Answers</h1>", "format": "html"}', {}),
+        ({"state": None, "domain": None}, {"customDomain": {"status": "pending_dns"}}, "",
+         '{"content": "<h1>Answers</h1>", "format": "html"}', {}),
+        ({"state": {}}, {"ownerToken": None, "effectiveDeliveryMode": "subdomain",
+                        "deliveryModeReason": "policy:state-declared", "deliveryNotice": "Page data uses its own address.",
+                        "notices": []}, "",
+         '{"content": "<h1>Answers</h1>", "format": "html", "state": {}}',
+         {"delivery_mode": "subdomain", "delivery_mode_reason": "policy:state-declared",
+          "delivery_notice": "Page data uses its own address.", "notices": []}),
+        ({"state": {"collections": {"answers": {}}}}, {}, "",
+         '{"content": "<h1>Answers</h1>", "format": "html", "state": {"collections": {"answers": {}}}}', {}),
+        ({"domain": "www.example.com"}, {"customDomain": DOMAIN, "notices": []}, "&domain=www.example.com",
+         '{"content": "<h1>Answers</h1>", "format": "html"}', {"custom_domain": DOMAIN, "notices": []}),
+        ({"state": {"collections": {"answers": {}}}, "domain": "www.example.com"},
+         {"customDomain": DOMAIN, "effectiveDeliveryMode": "subdomain", "notices": []}, "&domain=www.example.com",
+         '{"content": "<h1>Answers</h1>", "format": "html", "state": {"collections": {"answers": {}}}}',
+         {"custom_domain": DOMAIN, "delivery_mode": "subdomain", "notices": []}),
+        ({"domain": "www.example.com"},
+         {"notices": [{"code": "domain-needs-account", "message": "Link the owner token to a free profile."}]},
+         "&domain=www.example.com", '{"content": "<h1>Answers</h1>", "format": "html"}',
+         {"notices": [{"code": "domain-needs-account", "message": "Link the owner token to a free profile."}]}),
+    ],
+    ids=["absent", "null", "default-data", "declared-data", "domain", "data-and-domain", "domain-not-attached"],
+)
+def test_page_options_preserve_wire_receipts_and_owner_reuse(args, reply_fields, query, body, details):
+    # GIVEN the page tool, exact legacy defaults and a service reply with optional feature outcomes.
+    seen = []
+    client = _recording_client(201, _api_reply("html", reply_fields), seen)
+    tool = BrewPageToolSpec(client=client).to_tool_list()[0]
+    schema = tool.metadata.get_parameters_dict()
+    assert {"required": schema["required"],
+            "defaults": {name: schema["properties"][name]["default"]
+                         for name in ("format", "ttl_days", "password", "namespace", "state", "domain")}} == {
+        "required": ["content"],
+        "defaults": {"format": "html", "ttl_days": None, "password": None, "namespace": None,
+                     "state": None, "domain": None},
+    }, "Only content remains required; new page options leave existing defaults intact"
+
+    # WHEN a page is published with omitted, null or explicitly configured options.
+    result = tool.call(content="<h1>Answers</h1>", **args).raw_output
+
+    # THEN one request carries state in JSON and domain in the query; actual optional outcomes survive.
+    assert (seen, result, client.owner_token) == (
+        [{"method": "POST", "url": "https://brewpage.app/api/html?ns=my" + query,
+          "content_type": "application/json", "owner_token": "tok-1", "password": None, "body": body}],
+        {**_result(None), **details},
+        "tok-1",
+    ), "Configured outcomes are additive, absent options preserve the exact receipt, and owner proof is retained"
+
+
+@pytest.mark.parametrize(
+    ("owner_token", "transport_parties", "expected_tokens"),
+    [(None, 1, [None, "tok-1", "tok-1"]), ("tok-1", 2, ["tok-1", "tok-1", "tok-1"])],
+    ids=["anonymous-bootstrap", "already-owned-parallel"],
+)
+def test_concurrent_publications_share_bootstrap_owner_without_serializing_owned_calls(
+    monkeypatch, owner_token, transport_parties, expected_tokens
+):
+    # GIVEN both workers observe the same initial owner; owned requests must overlap at transport.
+    monkeypatch.delenv("BREWPAGE_OWNER_TOKEN", raising=False)
+    seen = []
+    seen_lock = Lock()
+    transport_gate = Barrier(transport_parties)
+
+    def handler(request):
+        token = request.headers.get("x-owner-token")
+        with seen_lock:
+            sequence = len(seen) + 1
+            seen.append({"method": request.method, "url": str(request.url), "owner_token": token,
+                         "body": json.loads(request.content)})
+        transport_gate.wait(timeout=5)
+        return httpx.Response(201, json=_api_reply("html", {"ownerToken": {None: f"tok-{sequence}"}.get(token)}))
+
+    client = _ConcurrentOwnerClient(owner_token=owner_token, namespace="my", transport=httpx.MockTransport(handler))
+    assert (client.owner_token, seen) == (owner_token, []), "Concurrent fixture starts with the exact owner and no requests"
+    client.initial_owner_reads = Barrier(2)
+
+    # WHEN two page creates start together, then a third create uses the retained owner.
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: client.publish_page("<p>same</p>", state={}), range(2)))
+    transport_gate = Barrier(1)
+    results.append(client.publish_page("<p>same</p>", state={}))
+    client._http.close()
+
+    # THEN one bootstrap owner covers every receipt; supplied-owner calls reach transport together.
+    assert (seen, results, client.owner_token) == (
+        [{"method": "POST", "url": "https://brewpage.app/api/html?ns=my", "owner_token": token,
+          "body": {"content": "<p>same</p>", "format": "html", "state": {}}} for token in expected_tokens],
+        [_result(None) for _ in range(3)], "tok-1",
+    ), "Concurrent creates keep one owner, exact receipts and request count, while owned transport stays parallel"
 
 
 @pytest.mark.live

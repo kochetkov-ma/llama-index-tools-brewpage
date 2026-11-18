@@ -33,10 +33,16 @@ class BrewPageToolSpec(BaseToolSpec):
         ttl_days: Ttl = None,
         password: Password = None,
         namespace: Namespace = None,
+        state: Annotated[Optional[Dict[str, Any]], Field(description=(
+            "Page data settings for an HTML page, e.g. {'collections': {'answers': {}}}; {} enables defaults. "
+            "Omit or null to leave settings unchanged. Add the visitor SDK to the HTML before publishing."))] = None,
+        domain: Annotated[Optional[str], Field(description=(
+            "Owned hostname for an HTML page without a reader password. Requires this client's owner token "
+            "linked to a BrewPage profile. Follow custom_domain DNS records/nextStep; check notices if not attached."))] = None,
     ) -> Dict[str, Any]:
         """Publish an HTML page or Markdown document on brewpage.app; returns its URL."""
         return self._call("publish_page", content=content, format=format, ttl_days=ttl_days,
-                          password=password, namespace=namespace)
+                          password=password, namespace=namespace, state=state, domain=domain)
 
     def publish_json(
         self,

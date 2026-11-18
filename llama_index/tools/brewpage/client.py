@@ -6,12 +6,13 @@ import json
 import mimetypes
 import os
 from pathlib import Path
+from threading import Lock
 from typing import Any, Dict, Optional
 
 import httpx
 
 DEFAULT_BASE_URL = "https://brewpage.app"
-USER_AGENT = "llama-index-tools-brewpage/0.1.2"
+USER_AGENT = "llama-index-tools-brewpage/0.2.0"
 
 
 class BrewPageError(RuntimeError):
@@ -32,12 +33,17 @@ class BrewPageClient:
         self.base_url = (base_url or os.environ.get("BREWPAGE_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
         self.owner_token = owner_token or os.environ.get("BREWPAGE_OWNER_TOKEN") or None
         self.namespace = namespace or os.environ.get("BREWPAGE_NAMESPACE") or None
+        self._owner_bootstrap_lock = Lock()
         self._http = httpx.Client(timeout=timeout, transport=transport, headers={"User-Agent": USER_AGENT})
 
     def publish_page(self, content: str, format: str = "html", ttl_days: Optional[int] = None,
-                     password: Optional[str] = None, namespace: Optional[str] = None) -> Dict[str, Any]:
-        body = {"content": content, "format": format}
-        return self._post("/api/html", namespace, ttl_days, password, json_body=body)
+                     password: Optional[str] = None, namespace: Optional[str] = None,
+                     state: Optional[Dict[str, Any]] = None, domain: Optional[str] = None) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"content": content, "format": format}
+        if state is not None:
+            body["state"] = state
+        return self._post("/api/html", namespace, ttl_days, password, json_body=body, domain=domain,
+                          include_page_details=state is not None or domain is not None)
 
     def publish_json(self, data: Any, ttl_days: Optional[int] = None, password: Optional[str] = None,
                      namespace: Optional[str] = None) -> Dict[str, Any]:
@@ -55,13 +61,26 @@ class BrewPageClient:
         return self._post("/api/files", namespace, ttl_days, password, files=files)
 
     def _post(self, path: str, namespace: Optional[str], ttl_days: Optional[int], password: Optional[str],
-              json_body: Any = None, files: Any = None) -> Dict[str, Any]:
+              json_body: Any = None, files: Any = None, domain: Optional[str] = None,
+              include_page_details: bool = False) -> Dict[str, Any]:
+        # Guard only anonymous bootstrap; waiters recheck the adopted owner before dispatch.
+        if not self.owner_token:
+            with self._owner_bootstrap_lock:
+                if not self.owner_token:
+                    return self._post_request(path, namespace, ttl_days, password, json_body, files, domain,
+                                              include_page_details)
+        return self._post_request(path, namespace, ttl_days, password, json_body, files, domain, include_page_details)
+
+    def _post_request(self, path: str, namespace: Optional[str], ttl_days: Optional[int], password: Optional[str],
+                      json_body: Any, files: Any, domain: Optional[str], include_page_details: bool) -> Dict[str, Any]:
         params = {}
         ns = namespace or self.namespace
         if ns:
             params["ns"] = ns
         if ttl_days is not None:
             params["ttl"] = str(ttl_days)
+        if domain is not None:
+            params["domain"] = domain
         headers = {}
         if self.owner_token:
             headers["X-Owner-Token"] = self.owner_token
@@ -78,7 +97,7 @@ class BrewPageClient:
         payload = response.json()
         if not self.owner_token and payload.get("ownerToken"):
             self.owner_token = payload["ownerToken"]
-        return {
+        result = {
             "url": payload.get("link"),
             "id": payload.get("id"),
             "namespace": payload.get("namespace"),
@@ -87,3 +106,10 @@ class BrewPageClient:
             "management_link": payload.get("manageUrl"),
             "expires_at": payload.get("expiresAt"),
         }
+        if include_page_details:
+            for source, target in (("customDomain", "custom_domain"), ("notices", "notices"),
+                                   ("effectiveDeliveryMode", "delivery_mode"),
+                                   ("deliveryModeReason", "delivery_mode_reason"), ("deliveryNotice", "delivery_notice")):
+                if source in payload:
+                    result[target] = payload[source]
+        return result
